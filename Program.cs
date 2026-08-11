@@ -1,27 +1,49 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Fleck;
 using HidSharp;
 
 namespace DualSenseReader
 {
     internal class Program
     {
-        // IDs do DualSense (Sony Interactive Entertainment)
         private const int SONY_VID = 0x054C;
         private const int DUALSENSE_PID = 0x0CE6;
         private const int DUALSENSE_EDGE_PID = 0x0DF2;
+
+        private static readonly List<IWebSocketConnection> Sockets = new();
 
         private static async Task Main(string[] args)
         {
             Console.Clear();
             Console.WriteLine("===========================================");
-            Console.WriteLine("       DualSense HID Reader v0.1           ");
+            Console.WriteLine("    DualSense WebServer & Reader v0.2      ");
             Console.WriteLine("===========================================\n");
+
+            // 1. Servidor WebSocket
+            var server = new WebSocketServer("ws://127.0.0.1:8181");
+            server.Start(socket =>
+            {
+                socket.OnOpen = () =>
+                {
+                    Console.WriteLine($"\n[Web] Cliente conectado: {socket.ConnectionInfo.Id}");
+                    Sockets.Add(socket);
+                };
+                socket.OnClose = () =>
+                {
+                    Console.WriteLine($"\n[Web] Cliente desconectado: {socket.ConnectionInfo.Id}");
+                    Sockets.Remove(socket);
+                };
+            });
+
+            Console.WriteLine("Servidor WebSocket rodando em ws://127.0.0.1:8181");
             Console.WriteLine("Buscando controle DualSense (PS5)...");
 
-            // 1. Localiza o dispositivo nas portas HID locais
+            // 2. Conexão HID
             var list = DeviceList.Local;
             var hidDevice = list.GetHidDevices(SONY_VID)
                                 .FirstOrDefault(d => d.ProductID == DUALSENSE_PID || d.ProductID == DUALSENSE_EDGE_PID);
@@ -31,34 +53,24 @@ namespace DualSenseReader
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine("\n[ERRO] DualSense não foi encontrado!");
                 Console.ResetColor();
-                Console.WriteLine("Certifique-se de que o controle está conectado via USB ou Bluetooth.");
                 return;
             }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n[SUCESSO] Dispositivo detectado: {hidDevice.GetFriendlyName()}");
-            Console.ResetColor();
-            Console.WriteLine($"Caminho: {hidDevice.DevicePath}\n");
-
-            // 2. Abre a stream de comunicação HID
             if (!hidDevice.TryOpen(out HidStream stream))
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine("\n[ATENÇÃO] Não foi possível abrir a conexão com o controle.");
                 Console.ResetColor();
-                Console.WriteLine("Verifique se o Steam, DS4Windows ou outro software de controle está aberto e feche-o.");
                 return;
             }
 
             using (stream)
             {
                 stream.ReadTimeout = 1000;
-                int maxReportLength = hidDevice.GetMaxInputReportLength();
-                byte[] buffer = new byte[maxReportLength];
+                byte[] buffer = new byte[hidDevice.GetMaxInputReportLength()];
 
-                Console.WriteLine($"Tamanho do pacote Input Report: {maxReportLength} bytes.");
-                Console.WriteLine("Lendo entradas... Pressione [Ctrl + C] para encerrar.\n");
-                Console.WriteLine("----------------------------------------------------------------------------------");
+                Console.WriteLine($"\nConectado! Pressione [Ctrl + C] para encerrar.");
+                Console.WriteLine("------------------------------------------------------------------");
 
                 using var cts = new CancellationTokenSource();
                 Console.CancelKeyPress += (sender, eventArgs) =>
@@ -76,13 +88,27 @@ namespace DualSenseReader
 
                         if (bytesRead > 0)
                         {
-                            ParseDualSenseBuffer(buffer, bytesRead);
+                            // A) Processa os dados do buffer
+                            var state = ProcessBuffer(buffer, bytesRead);
+
+                            if (state != null)
+                            {
+                                // B) Se houver navegadores conectados via WebSocket, envia o JSON
+                                if (Sockets.Any())
+                                {
+                                    string json = JsonSerializer.Serialize(state);
+                                    foreach (var socket in Sockets.ToList())
+                                    {
+                                        socket.Send(json);
+                                    }
+                                }
+
+                                // C) Imprime o estado detalhado no terminal
+                                PrintTerminalOutput(state);
+                            }
                         }
                     }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
+                    catch (OperationCanceledException) { break; }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"\nErro durante a leitura: {ex.Message}");
@@ -92,44 +118,100 @@ namespace DualSenseReader
                     await Task.Delay(10, cts.Token);
                 }
             }
-
-            Console.WriteLine("\n\nLeitura finalizada.");
         }
 
-        // 4. Mapeamento dos pacotes HID (Conexão USB Padrão - Report ID 0x01)
-        private static void ParseDualSenseBuffer(byte[] buffer, int length)
+        // 4. Mapeamento completo dos dados
+        private static DualSenseState? ProcessBuffer(byte[] buffer, int length)
         {
-            // Valida se o buffer recebido possui o tamanho mínimo para leitura segura
-            if (length < 10) return;
+            if (length < 11) return null;
 
-            // --- LEITURA ANALÓGICA DOS GATILHOS L2 E R2 (0 a 255) ---
-            byte l2Pressure = buffer[5];
-            byte r2Pressure = buffer[6];
+            byte b8 = buffer[8];
+            byte b9 = buffer[9];
+            byte b10 = buffer[10];
 
-            // Converte a pressão analógica em porcentagem (0% a 100%)
-            int l2Percent = (int)Math.Round((l2Pressure / 255.0) * 100);
-            int r2Percent = (int)Math.Round((r2Pressure / 255.0) * 100);
+            return new DualSenseState
+            {
+                LX = buffer[1],
+                LY = buffer[2],
+                RX = buffer[3],
+                RY = buffer[4],
+                L2 = (int)Math.Round((buffer[5] / 255.0) * 100),
+                R2 = (int)Math.Round((buffer[6] / 255.0) * 100),
+                DPad = b8 & 0x0F,
+                Square = (b8 & 0x10) != 0,
+                Cross = (b8 & 0x20) != 0,
+                Circle = (b8 & 0x40) != 0,
+                Triangle = (b8 & 0x80) != 0,
+                L1 = (b9 & 0x01) != 0,
+                R1 = (b9 & 0x02) != 0,
+                L2Click = (b9 & 0x04) != 0,
+                R2Click = (b9 & 0x08) != 0,
+                Create = (b9 & 0x10) != 0,
+                Options = (b9 & 0x20) != 0,
+                L3 = (b9 & 0x40) != 0,
+                R3 = (b9 & 0x80) != 0,
+                PS = (b10 & 0x01) != 0,
+                Touchpad = (b10 & 0x02) != 0,
+                Mute = (b10 & 0x04) != 0
+            };
+        }
 
-            // --- BOTÕES DE OMBRO E CLIQUE NO FIM DO CURSO DOS GATILHOS ---
-            byte buttons2 = buffer[9];
-            bool l2Clicked = (buttons2 & 0x04) != 0; // Acionamento digital no fim do curso do L2
-            bool r2Clicked = (buttons2 & 0x08) != 0; // Acionamento digital no fim do curso do R2
+        // 5. Exibição no Console
+        private static void PrintTerminalOutput(DualSenseState state)
+        {
+            string dpadState = state.DPad switch
+            {
+                0 => "Cima",
+                1 => "Cima-Dir",
+                2 => "Direita",
+                3 => "Baixo-Dir",
+                4 => "Baixo",
+                5 => "Baixo-Esq",
+                6 => "Esquerda",
+                7 => "Cima-Esq",
+                _ => "Solto"
+            };
 
-            // Desenha barras de progresso no terminal para feedback visual
-            string l2Bar = GetProgressBar(l2Percent);
-            string r2Bar = GetProgressBar(r2Percent);
+            string acoes = "";
+            if (state.Square)   acoes += "[□] ";
+            if (state.Cross)    acoes += "[X] ";
+            if (state.Circle)   acoes += "[O] ";
+            if (state.Triangle) acoes += "[Δ] ";
+            if (state.L1)       acoes += "[L1] ";
+            if (state.R1)       acoes += "[R1] ";
+            if (state.L3)       acoes += "[L3] ";
+            if (state.R3)       acoes += "[R3] ";
+            if (string.IsNullOrEmpty(acoes)) acoes = "Nenhum";
 
-            // Exibe as leituras na mesma linha do console
             Console.SetCursorPosition(0, Console.CursorTop);
-            Console.Write($"L2: {l2Pressure,3} ({l2Percent,3}%) [{l2Bar}] {(l2Clicked ? "[CLICK]" : "       ")} | ");
-            Console.Write($"R2: {r2Pressure,3} ({r2Percent,3}%) [{r2Bar}] {(r2Clicked ? "[CLICK]" : "       ")}  ");
+            Console.Write($"LX:{state.LX,3} LY:{state.LY,3} | RX:{state.RX,3} RY:{state.RY,3} | L2:{state.L2,3}% R2:{state.R2,3}% | DPad:{dpadState,-9} | BTN:{acoes,-18}   ");
         }
+    }
 
-        // Método auxiliar para construir a barra visual no console
-        private static string GetProgressBar(int percent, int totalBlocks = 10)
-        {
-            int filledBlocks = (int)Math.Round((percent / 100.0) * totalBlocks);
-            return new string('█', filledBlocks) + new string('-', totalBlocks - filledBlocks);
-        }
+    // Modelo de dados fortemente tipado
+    public class DualSenseState
+    {
+        public byte LX { get; set; }
+        public byte LY { get; set; }
+        public byte RX { get; set; }
+        public byte RY { get; set; }
+        public int L2 { get; set; }
+        public int R2 { get; set; }
+        public bool L2Click { get; set; }
+        public bool R2Click { get; set; }
+        public int DPad { get; set; }
+        public bool Square { get; set; }
+        public bool Cross { get; set; }
+        public bool Circle { get; set; }
+        public bool Triangle { get; set; }
+        public bool L1 { get; set; }
+        public bool R1 { get; set; }
+        public bool L3 { get; set; }
+        public bool R3 { get; set; }
+        public bool Create { get; set; }
+        public bool Options { get; set; }
+        public bool PS { get; set; }
+        public bool Touchpad { get; set; }
+        public bool Mute { get; set; }
     }
 }
