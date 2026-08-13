@@ -5,127 +5,105 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DualSense Hardware Monitor</title>
   <link rel="stylesheet" href="style.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
   <div class="dashboard">
     
+    <!-- Header -->
     <header class="header">
       <div class="logo">
         <span class="brand">DUALSENSE</span>
-        <span class="sub">MONITOR & CALIBRATION</span>
+        <span class="sub">HARDWARE TESTER & CALIBRATION</span>
       </div>
-      <div class="status-badge connected" id="statusBadge">
+      <div class="status-badge" id="statusBadge">
         <span class="dot"></span>
-        <span id="statusText">DISPOSITIVO CONECTADO</span>
+        <span id="statusText">CONECTANDO...</span>
       </div>
     </header>
 
-    <main class="grid-container">
-      
-      <!-- Card de Painel de Calibração -->
-<section class="card calibration-card">
-  <h2>PAINEL DE CALIBRAÇÃO</h2>
-  
-  <div class="control-group">
-    <label for="sliderDeadzone">ZONA MORTA (DEADZONE): <strong id="lblDeadzone">10%</strong></label>
-    <input type="range" id="sliderDeadzone" min="0" max="40" value="10" step="1" />
-  </div>
-
-  <div class="button-group">
-    <button id="btnCalibrate" class="btn-action">CALIBRAR CENTRO</button>
-    <button id="btnReset" class="btn-secondary">RESETAR FÁBRICA</button>
-  </div>
-</section>
-      <section class="card analog-card">
-        <h2>ANALÓGICOS</h2>
-        <div class="sticks-wrapper">
-          <div class="stick-box">
-            <h3>ESQUERDO (LS)</h3>
-            <div class="stick-visual">
-              <div class="stick-dot" id="stickLeftDot"></div>
-            </div>
-            <div class="metrics">
-              <span>X: <strong id="valLX">128</strong></span>
-              <span>Y: <strong id="valLY">128</strong></span>
-            </div>
-          </div>
-
-          <div class="stick-box">
-            <h3>DIREITO (RS)</h3>
-            <div class="stick-visual">
-              <div class="stick-dot" id="stickRightDot"></div>
-            </div>
-            <div class="metrics">
-              <span>X: <strong id="valRX">128</strong></span>
-              <span>Y: <strong id="valRY">128</strong></span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="card triggers-card">
-        <h2>GATILHOS (L2 / R2)</h2>
-        <div class="triggers-wrapper">
-          <!-- L2 -->
-          <div class="trigger-box">
-            <div class="trigger-header">
-              <span>L2</span>
-              <strong id="valL2">0%</strong>
-            </div>
-            <div class="bar-bg">
-              <div class="bar-fill" id="barL2" style="height: 0%;"></div>
-            </div>
-            <span class="click-indicator" id="clickL2">DIGITAL CLICK</span>
-          </div>
-
-          <div class="trigger-box">
-            <div class="trigger-header">
-              <span>R2</span>
-              <strong id="valR2">0%</strong>
-            </div>
-            <div class="bar-bg">
-              <div class="bar-fill" id="barR2" style="height: 0%;"></div>
-            </div>
-            <span class="click-indicator" id="clickR2">DIGITAL CLICK</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="card buttons-card">
-        <h2>MAPPING & BOTOES</h2>
-        <div class="buttons-wrapper">
+    <!-- ÁREA DO CONTROLE DUALSENSE -->
+    <div class="controller-wrapper">
+      <div class="controller-body">
+        
+        <!-- Vetor Ultra Detalhado do DualSense -->
+        <svg class="controller-outline-svg" viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+          <!-- Empunhaduras e Corpo Base -->
+          <path class="ds-body" d="M 230,80 C 330,70 470,70 570,80 C 620,85 680,120 720,200 C 760,280 780,380 735,460 C 715,495 660,490 615,420 C 580,360 540,325 400,325 C 260,325 220,360 185,420 C 140,490 85,495 65,460 C 20,380 40,280 80,200 C 120,120 180,85 230,80 Z" />
           
-          <div class="dpad-box">
-            <h3>D-PAD</h3>
-            <div class="dpad-cross">
-              <div class="dpad-btn up" id="dpadUp">▲</div>
-              <div class="dpad-middle">
-                <div class="dpad-btn left" id="dpadLeft">◄</div>
-                <div class="dpad-center"></div>
-                <div class="dpad-btn right" id="dpadRight">►</div>
-              </div>
-              <div class="dpad-btn down" id="dpadDown">▼</div>
-            </div>
-          </div>
+          <!-- Moldura Interior Preta (Painel do Touchpad/Analógicos) -->
+          <path class="ds-inner-black" d="M 270,125 L 530,125 C 555,125 565,140 560,170 L 535,290 C 515,360 475,390 400,390 C 325,390 285,360 265,290 L 240,170 C 235,140 245,125 270,125 Z" />
+          
+          <!-- Iluminação Lateral Lightbar (Tiras em Neon) -->
+          <path class="ds-lightbar-left" d="M 268,128 L 243,172 C 238,198 245,260 262,295" />
+          <path class="ds-lightbar-right" d="M 532,128 L 557,172 C 562,198 555,260 538,295" />
+        </svg>
 
-          <div class="actions-box">
-            <h3>AÇÕES</h3>
-            <div class="action-cross">
-              <div class="action-btn triangle" id="btnTriangle">Δ</div>
-              <div class="action-middle">
-                <div class="action-btn square" id="btnSquare">□</div>
-                <div class="action-btn circle" id="btnCircle">O</div>
-              </div>
-              <div class="action-btn cross-btn" id="btnCross">✕</div>
-            </div>
-          </div>
+        <!-- L1 e R1 -->
+        <div class="btn bumper left" id="btnL1">L1</div>
+        <div class="btn bumper right" id="btnR1">R1</div>
 
+        <!-- L2 e R2 (Gatilhos) -->
+        <div class="trigger-container left">
+          <span class="trigger-title">L2 <small id="valL2">0%</small></span>
+          <div class="trigger-bar-bg"><div class="trigger-bar-fill" id="barL2"></div></div>
         </div>
-      </section>
+        <div class="trigger-container right">
+          <span class="trigger-title">R2 <small id="valR2">0%</small></span>
+          <div class="trigger-bar-bg"><div class="trigger-bar-fill" id="barR2"></div></div>
+        </div>
 
-    </main>
+        <!-- Touchpad, Create, Options, PS, Mic -->
+        <div class="btn option-btn create" id="btnCreate">|||</div>
+        <div class="btn option-btn options" id="btnOptions">≡</div>
+        <div class="btn touchpad" id="btnTouchpad">TOUCHPAD</div>
+        <div class="btn ps-btn" id="btnPS">PS</div>
+        <div class="btn mic-btn" id="btnMute">MIC</div>
+
+        <!-- D-Pad -->
+        <div class="dpad-group">
+          <div class="btn dpad-btn up" id="dpadUp">▲</div>
+          <div class="btn dpad-btn left" id="dpadLeft">◄</div>
+          <div class="btn dpad-btn right" id="dpadRight">►</div>
+          <div class="btn dpad-btn down" id="dpadDown">▼</div>
+        </div>
+
+        <!-- Botões de Ação -->
+        <div class="action-group">
+          <div class="btn action-btn triangle" id="btnTriangle">Δ</div>
+          <div class="btn action-btn square" id="btnSquare">□</div>
+          <div class="btn action-btn circle" id="btnCircle">○</div>
+          <div class="btn action-btn cross" id="btnCross">✕</div>
+        </div>
+
+        <!-- Analógico Esquerdo -->
+        <div class="stick-base left">
+          <div class="stick-thumb" id="stickLeftDot"></div>
+        </div>
+
+        <!-- Analógico Direito -->
+        <div class="stick-base right">
+          <div class="stick-thumb" id="stickRightDot"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Painel de Calibração -->
+    <section class="calibration-card">
+      <div class="control-group">
+        <label for="sliderDeadzone">ZONA MORTA (DEADZONE): <strong id="lblDeadzone">10%</strong></label>
+        <input type="range" id="sliderDeadzone" min="0" max="40" value="10" step="1" />
+      </div>
+
+      <div class="button-group">
+        <button id="btnCalibrate" class="btn-orange">CALIBRAR CENTRO</button>
+        <button id="btnReset" class="btn-outline">RESETAR FÁBRICA</button>
+      </div>
+    </section>
+
   </div>
+
   <script src="app.js"></script>
 </body>
 </html>

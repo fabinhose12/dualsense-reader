@@ -5,12 +5,12 @@ const statusText = document.getElementById('statusText');
 
 socket.onopen = () => {
   if (statusBadge) statusBadge.className = 'status-badge connected';
-  if (statusText) statusText.innerText = 'DISPOSITIVO CONECTADO';
+  if (statusText) statusText.innerText = 'CONECTADO';
 };
 
 socket.onclose = () => {
   if (statusBadge) statusBadge.className = 'status-badge';
-  if (statusText) statusText.innerText = 'DESCONECTADO DO SERVIDOR';
+  if (statusText) statusText.innerText = 'DESCONECTADO';
 };
 
 socket.onmessage = (event) => {
@@ -18,44 +18,53 @@ socket.onmessage = (event) => {
 
   // 1. Analógico Esquerdo Calibrado (-1.0 a +1.0)
   if (data.CalibratedLX !== undefined) {
-    document.getElementById('valLX').innerText = data.RawLX;
-    document.getElementById('valLY').innerText = data.RawLY;
-
-    // Converte os valores calibrados para deslocamento em pixels
-    const moveX = data.CalibratedLX * 35;
-    const moveY = data.CalibratedLY * 35;
+    const moveX = data.CalibratedLX * 28;
+    const moveY = data.CalibratedLY * 28;
     const stickLeft = document.getElementById('stickLeftDot');
-    if (stickLeft) stickLeft.style.transform = `translate(${moveX}px, ${moveY}px)`;
+    if (stickLeft) {
+      stickLeft.style.transform = `translate(${moveX}px, ${moveY}px)`;
+      stickLeft.classList.toggle('active', data.L3);
+    }
   }
 
   // 2. Analógico Direito Calibrado (-1.0 a +1.0)
   if (data.CalibratedRX !== undefined) {
-    document.getElementById('valRX').innerText = data.RawRX;
-    document.getElementById('valRY').innerText = data.RawRY;
-
-    const moveX = data.CalibratedRX * 35;
-    const moveY = data.CalibratedRY * 35;
+    const moveX = data.CalibratedRX * 28;
+    const moveY = data.CalibratedRY * 28;
     const stickRight = document.getElementById('stickRightDot');
-    if (stickRight) stickRight.style.transform = `translate(${moveX}px, ${moveY}px)`;
+    if (stickRight) {
+      stickRight.style.transform = `translate(${moveX}px, ${moveY}px)`;
+      stickRight.classList.toggle('active', data.R3);
+    }
   }
 
-  // 3. Gatilhos
+  // 3. Gatilhos L2 / R2
   if (data.L2 !== undefined) {
     document.getElementById('valL2').innerText = `${data.L2}%`;
     document.getElementById('barL2').style.height = `${data.L2}%`;
-    document.getElementById('clickL2').classList.toggle('active', data.L2Click);
 
     document.getElementById('valR2').innerText = `${data.R2}%`;
     document.getElementById('barR2').style.height = `${data.R2}%`;
-    document.getElementById('clickR2').classList.toggle('active', data.R2Click);
   }
 
-  // 4. Botões de Ação e D-Pad
+  // 4. Ombros
+  toggleActive('btnL1', data.L1);
+  toggleActive('btnR1', data.R1);
+
+  // 5. Botões de Ação
   toggleActive('btnSquare', data.Square);
   toggleActive('btnCross', data.Cross);
   toggleActive('btnCircle', data.Circle);
   toggleActive('btnTriangle', data.Triangle);
 
+  // 6. Especiais
+  toggleActive('btnCreate', data.Create);
+  toggleActive('btnOptions', data.Options);
+  toggleActive('btnTouchpad', data.Touchpad);
+  toggleActive('btnPS', data.PS);
+  toggleActive('btnMute', data.Mute);
+
+  // 7. D-Pad
   const dpad = data.DPad;
   toggleActive('dpadUp', dpad === 0 || dpad === 1 || dpad === 7);
   toggleActive('dpadRight', dpad === 1 || dpad === 2 || dpad === 3);
@@ -68,7 +77,7 @@ function toggleActive(id, condition) {
   if (el) el.classList.toggle('active', condition);
 }
 
-// --- Comandos do Painel de Calibração para o C# ---
+// Comandos do Painel de Calibração para o C#
 document.getElementById('btnCalibrate')?.addEventListener('click', () => {
   socket.send(JSON.stringify({ action: 'calibrateCenter' }));
 });

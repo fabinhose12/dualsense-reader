@@ -17,7 +17,6 @@ namespace DualSenseReader
 
         private static readonly List<IWebSocketConnection> Sockets = new();
 
-        // --- Configurações globais de calibração ---
         private static byte _offsetLX = 128;
         private static byte _offsetLY = 128;
         private static byte _offsetRX = 128;
@@ -33,7 +32,6 @@ namespace DualSenseReader
             Console.WriteLine(" DualSense WebServer & Reader (Calibrado)  ");
             Console.WriteLine("===========================================\n");
 
-            // 1. Inicia o Servidor WebSocket
             var server = new WebSocketServer("ws://127.0.0.1:8181");
             server.Start(socket =>
             {
@@ -47,7 +45,6 @@ namespace DualSenseReader
                     Console.WriteLine($"\n[Web] Cliente desconectado: {socket.ConnectionInfo.Id}");
                     Sockets.Remove(socket);
                 };
-                // Recebe mensagens de calibração vindas da página Web
                 socket.OnMessage = message => HandleWebMessage(message);
             });
 
@@ -126,7 +123,6 @@ namespace DualSenseReader
             }
         }
 
-        // --- Trata comandos recebidos do Frontend JS ---
         private static void HandleWebMessage(string message)
         {
             try
@@ -140,7 +136,6 @@ namespace DualSenseReader
 
                     if (action == "calibrateCenter")
                     {
-                        // O valor cru atual do buffer servirá como o novo centro (ponto zero)
                         _offsetLX = _lastRawLX;
                         _offsetLY = _lastRawLY;
                         _offsetRX = _lastRawRX;
@@ -172,7 +167,6 @@ namespace DualSenseReader
 
         private static byte _lastRawLX = 128, _lastRawLY = 128, _lastRawRX = 128, _lastRawRY = 128;
 
-        // --- Processamento com Cálculos de Deadzone e Offset ---
         private static DualSenseState? ProcessBuffer(byte[] buffer, int length)
         {
             if (length < 11) return null;
@@ -186,7 +180,6 @@ namespace DualSenseReader
             byte b9 = buffer[9];
             byte b10 = buffer[10];
 
-            // Aplica os filtros de offset e deadzone em cada eixo
             var (calLX, calLY) = ApplyAnalogCalibration(_lastRawLX, _lastRawLY, _offsetLX, _offsetLY, _deadzoneLeftPercent);
             var (calRX, calRY) = ApplyAnalogCalibration(_lastRawRX, _lastRawRY, _offsetRX, _offsetRY, _deadzoneRightPercent);
 
@@ -197,7 +190,6 @@ namespace DualSenseReader
                 RawRX = _lastRawRX,
                 RawRY = _lastRawRY,
 
-                // Valores calibrados entre -1.0 e 1.0 (para o JavaScript usar suavemente)
                 CalibratedLX = calLX,
                 CalibratedLY = calLY,
                 CalibratedRX = calRX,
@@ -224,23 +216,18 @@ namespace DualSenseReader
             };
         }
 
-        // --- Algoritmo de Calibração Radial de Deadzone ---
         private static (double normX, double normY) ApplyAnalogCalibration(byte rawX, byte rawY, byte offsetX, byte offsetY, double deadzonePercent)
         {
-            // 1. Calcula a posição relativa ao centro calibrado (-1.0 a +1.0)
             double x = (rawX - offsetX) / 128.0;
             double y = (rawY - offsetY) / 128.0;
 
-            // 2. Calcula a magnitude do deslocamento vetorial (distância do centro)
             double magnitude = Math.Sqrt(x * x + y * y);
 
-            // 3. Se estiver dentro da zona morta, força valor ZERO no centro
             if (magnitude < deadzonePercent)
             {
                 return (0.0, 0.0);
             }
 
-            // 4. Se passou da zona morta, renormaliza suavemente até 1.0
             double normalizedMagnitude = Math.Min(1.0, (magnitude - deadzonePercent) / (1.0 - deadzonePercent));
             double scale = normalizedMagnitude / magnitude;
 
