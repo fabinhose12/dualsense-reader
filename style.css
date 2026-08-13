@@ -40,7 +40,6 @@ body {
   gap: 25px;
 }
 
-/* Header */
 .header {
   display: flex;
   justify-content: space-between;
@@ -96,7 +95,6 @@ body {
   box-shadow: 0 0 10px var(--accent-green);
 }
 
-/* Layout Grid */
 .grid-container {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -124,7 +122,6 @@ body {
   padding-bottom: 10px;
 }
 
-/* Analógicos Visual */
 .sticks-wrapper {
   display: flex;
   justify-content: space-around;
@@ -175,7 +172,6 @@ body {
   color: var(--accent-blue);
 }
 
-/* Gatilhos Bars */
 .triggers-wrapper {
   display: flex;
   justify-content: space-around;
@@ -234,7 +230,6 @@ body {
   text-shadow: 0 0 8px var(--accent-red);
 }
 
-/* Botões & D-Pad */
 .buttons-wrapper {
   display: flex;
   justify-content: space-around;
@@ -271,7 +266,6 @@ body {
   border-radius: 50%;
 }
 
-/* Botões Ativos (Glow Effects) */
 .dpad-btn.active {
   background: var(--accent-blue);
   color: #000;

@@ -17,14 +17,23 @@ namespace DualSenseReader
 
         private static readonly List<IWebSocketConnection> Sockets = new();
 
+        // --- Configurações globais de calibração ---
+        private static byte _offsetLX = 128;
+        private static byte _offsetLY = 128;
+        private static byte _offsetRX = 128;
+        private static byte _offsetRY = 128;
+
+        private static double _deadzoneLeftPercent = 0.10;  // 10% de deadzone padrão
+        private static double _deadzoneRightPercent = 0.10; // 10% de deadzone padrão
+
         private static async Task Main(string[] args)
         {
             Console.Clear();
             Console.WriteLine("===========================================");
-            Console.WriteLine("    DualSense WebServer & Reader v0.2      ");
+            Console.WriteLine(" DualSense WebServer & Reader (Calibrado)  ");
             Console.WriteLine("===========================================\n");
 
-            // 1. Servidor WebSocket
+            // 1. Inicia o Servidor WebSocket
             var server = new WebSocketServer("ws://127.0.0.1:8181");
             server.Start(socket =>
             {
@@ -38,12 +47,13 @@ namespace DualSenseReader
                     Console.WriteLine($"\n[Web] Cliente desconectado: {socket.ConnectionInfo.Id}");
                     Sockets.Remove(socket);
                 };
+                // Recebe mensagens de calibração vindas da página Web
+                socket.OnMessage = message => HandleWebMessage(message);
             });
 
             Console.WriteLine("Servidor WebSocket rodando em ws://127.0.0.1:8181");
             Console.WriteLine("Buscando controle DualSense (PS5)...");
 
-            // 2. Conexão HID
             var list = DeviceList.Local;
             var hidDevice = list.GetHidDevices(SONY_VID)
                                 .FirstOrDefault(d => d.ProductID == DUALSENSE_PID || d.ProductID == DUALSENSE_EDGE_PID);
@@ -69,7 +79,7 @@ namespace DualSenseReader
                 stream.ReadTimeout = 1000;
                 byte[] buffer = new byte[hidDevice.GetMaxInputReportLength()];
 
-                Console.WriteLine($"\nConectado! Pressione [Ctrl + C] para encerrar.");
+                Console.WriteLine("\nConectado! Pressione [Ctrl + C] para encerrar.");
                 Console.WriteLine("------------------------------------------------------------------");
 
                 using var cts = new CancellationTokenSource();
@@ -79,7 +89,6 @@ namespace DualSenseReader
                     cts.Cancel();
                 };
 
-                // 3. Loop de leitura de bytes
                 while (!cts.Token.IsCancellationRequested)
                 {
                     try
@@ -88,12 +97,10 @@ namespace DualSenseReader
 
                         if (bytesRead > 0)
                         {
-                            // A) Processa os dados do buffer
                             var state = ProcessBuffer(buffer, bytesRead);
 
                             if (state != null)
                             {
-                                // B) Se houver navegadores conectados via WebSocket, envia o JSON
                                 if (Sockets.Any())
                                 {
                                     string json = JsonSerializer.Serialize(state);
@@ -103,7 +110,6 @@ namespace DualSenseReader
                                     }
                                 }
 
-                                // C) Imprime o estado detalhado no terminal
                                 PrintTerminalOutput(state);
                             }
                         }
@@ -120,21 +126,83 @@ namespace DualSenseReader
             }
         }
 
-        // 4. Mapeamento completo dos dados
+        // --- Trata comandos recebidos do Frontend JS ---
+        private static void HandleWebMessage(string message)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(message);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("action", out var actionProp))
+                {
+                    string action = actionProp.GetString() ?? "";
+
+                    if (action == "calibrateCenter")
+                    {
+                        // O valor cru atual do buffer servirá como o novo centro (ponto zero)
+                        _offsetLX = _lastRawLX;
+                        _offsetLY = _lastRawLY;
+                        _offsetRX = _lastRawRX;
+                        _offsetRY = _lastRawRY;
+                        Console.WriteLine($"\n[CALIBRAÇÃO] Novo centro gravado: LS({_offsetLX},{_offsetLY}) RS({_offsetRX},{_offsetRY})");
+                    }
+                    else if (action == "resetCalibration")
+                    {
+                        _offsetLX = 128;
+                        _offsetLY = 128;
+                        _offsetRX = 128;
+                        _offsetRY = 128;
+                        Console.WriteLine("\n[CALIBRAÇÃO] Ponto zero restaurado para o valor de fábrica (128).");
+                    }
+                    else if (action == "setDeadzone" && root.TryGetProperty("value", out var valProp))
+                    {
+                        double val = valProp.GetDouble() / 100.0; // Converte 0-50% para 0.0-0.5
+                        _deadzoneLeftPercent = val;
+                        _deadzoneRightPercent = val;
+                        Console.WriteLine($"\n[CALIBRAÇÃO] Deadzone ajustada para {val * 100:F0}%");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"\nErro ao processar mensagem Web: {ex.Message}");
+            }
+        }
+
+        private static byte _lastRawLX = 128, _lastRawLY = 128, _lastRawRX = 128, _lastRawRY = 128;
+
+        // --- Processamento com Cálculos de Deadzone e Offset ---
         private static DualSenseState? ProcessBuffer(byte[] buffer, int length)
         {
             if (length < 11) return null;
+
+            _lastRawLX = buffer[1];
+            _lastRawLY = buffer[2];
+            _lastRawRX = buffer[3];
+            _lastRawRY = buffer[4];
 
             byte b8 = buffer[8];
             byte b9 = buffer[9];
             byte b10 = buffer[10];
 
+            // Aplica os filtros de offset e deadzone em cada eixo
+            var (calLX, calLY) = ApplyAnalogCalibration(_lastRawLX, _lastRawLY, _offsetLX, _offsetLY, _deadzoneLeftPercent);
+            var (calRX, calRY) = ApplyAnalogCalibration(_lastRawRX, _lastRawRY, _offsetRX, _offsetRY, _deadzoneRightPercent);
+
             return new DualSenseState
             {
-                LX = buffer[1],
-                LY = buffer[2],
-                RX = buffer[3],
-                RY = buffer[4],
+                RawLX = _lastRawLX,
+                RawLY = _lastRawLY,
+                RawRX = _lastRawRX,
+                RawRY = _lastRawRY,
+
+                // Valores calibrados entre -1.0 e 1.0 (para o JavaScript usar suavemente)
+                CalibratedLX = calLX,
+                CalibratedLY = calLY,
+                CalibratedRX = calRX,
+                CalibratedRY = calRY,
+
                 L2 = (int)Math.Round((buffer[5] / 255.0) * 100),
                 R2 = (int)Math.Round((buffer[6] / 255.0) * 100),
                 DPad = b8 & 0x0F,
@@ -156,45 +224,48 @@ namespace DualSenseReader
             };
         }
 
-        // 5. Exibição no Console
+        // --- Algoritmo de Calibração Radial de Deadzone ---
+        private static (double normX, double normY) ApplyAnalogCalibration(byte rawX, byte rawY, byte offsetX, byte offsetY, double deadzonePercent)
+        {
+            // 1. Calcula a posição relativa ao centro calibrado (-1.0 a +1.0)
+            double x = (rawX - offsetX) / 128.0;
+            double y = (rawY - offsetY) / 128.0;
+
+            // 2. Calcula a magnitude do deslocamento vetorial (distância do centro)
+            double magnitude = Math.Sqrt(x * x + y * y);
+
+            // 3. Se estiver dentro da zona morta, força valor ZERO no centro
+            if (magnitude < deadzonePercent)
+            {
+                return (0.0, 0.0);
+            }
+
+            // 4. Se passou da zona morta, renormaliza suavemente até 1.0
+            double normalizedMagnitude = Math.Min(1.0, (magnitude - deadzonePercent) / (1.0 - deadzonePercent));
+            double scale = normalizedMagnitude / magnitude;
+
+            return (x * scale, y * scale);
+        }
+
         private static void PrintTerminalOutput(DualSenseState state)
         {
-            string dpadState = state.DPad switch
-            {
-                0 => "Cima",
-                1 => "Cima-Dir",
-                2 => "Direita",
-                3 => "Baixo-Dir",
-                4 => "Baixo",
-                5 => "Baixo-Esq",
-                6 => "Esquerda",
-                7 => "Cima-Esq",
-                _ => "Solto"
-            };
-
-            string acoes = "";
-            if (state.Square)   acoes += "[□] ";
-            if (state.Cross)    acoes += "[X] ";
-            if (state.Circle)   acoes += "[O] ";
-            if (state.Triangle) acoes += "[Δ] ";
-            if (state.L1)       acoes += "[L1] ";
-            if (state.R1)       acoes += "[R1] ";
-            if (state.L3)       acoes += "[L3] ";
-            if (state.R3)       acoes += "[R3] ";
-            if (string.IsNullOrEmpty(acoes)) acoes = "Nenhum";
-
             Console.SetCursorPosition(0, Console.CursorTop);
-            Console.Write($"LX:{state.LX,3} LY:{state.LY,3} | RX:{state.RX,3} RY:{state.RY,3} | L2:{state.L2,3}% R2:{state.R2,3}% | DPad:{dpadState,-9} | BTN:{acoes,-18}   ");
+            Console.Write($"LS:({state.CalibratedLX,5:F2},{state.CalibratedLY,5:F2}) | RS:({state.CalibratedRX,5:F2},{state.CalibratedRY,5:F2}) | L2:{state.L2,3}% R2:{state.R2,3}%   ");
         }
     }
 
-    // Modelo de dados fortemente tipado
     public class DualSenseState
     {
-        public byte LX { get; set; }
-        public byte LY { get; set; }
-        public byte RX { get; set; }
-        public byte RY { get; set; }
+        public byte RawLX { get; set; }
+        public byte RawLY { get; set; }
+        public byte RawRX { get; set; }
+        public byte RawRY { get; set; }
+
+        public double CalibratedLX { get; set; }
+        public double CalibratedLY { get; set; }
+        public double CalibratedRX { get; set; }
+        public double CalibratedRY { get; set; }
+
         public int L2 { get; set; }
         public int R2 { get; set; }
         public bool L2Click { get; set; }
